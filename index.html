@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<head>
+  <meta charset="utf-8">
+  <style>
+      .axis, .freq-axis path {
+        stroke: hsl(0, 0%, 70%);
+      }
+      .line {
+        fill: none;
+        stroke: steelblue;
+        stroke-width: 1.5px;
+      }
+      .new.line {
+        stroke: grey;
+      }
+  </style>
+</head>
+<body>
+    <input id="zoom" type="range" value="1" min="0.1" max="1" step="0.01"> <label>Zoom</label>
+    <script src="https://d3js.org/d3.v4.min.js"></script>
+<script>
+    var
+        margin = {top: 40, right: 0, bottom: 40, left: 50},
+        W = 960,
+        H = 500,
+        w = W - margin.left - margin.right,
+        h = H - margin.top - margin.bottom,
+        π = Math.PI,
+        periods = 4,
+        MAX_FREQ = 10,
+        MERGE_DURATION = 800,
+        resolution = 2 * MAX_FREQ,
+        harmonics = [],
+        mainData = createData(harmonics),
+        zoom = d3.select('#zoom'),
+        sliderValue = 1;
+
+    var xScale = d3.scaleLinear()
+        .domain([0, 2 * π * periods])
+        .range([0, w]),
+    yScale = d3.scaleLinear()
+        .domain([-5, 5])
+        .range([0, h]),
+    line = d3.line()
+        .x(function(d) {
+            return xScale(d.x);
+        })
+        .y(function(d) {
+            return yScale(d.y);
+        })
+        .curve(d3.curveNatural),
+    freqAxis = d3.axisTop(xScale.copy().domain([0, 1]));
+    createData(harmonics);
+
+    var svg = d3.select("body")
+        .append("svg")
+            .attr("width", W)
+            .attr("height", H),
+        g = svg.append("g")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")"),
+        mainPath = g.append("path")
+            .attr("class", "line");
+
+    g.append("line")
+        .attr("class", "axis")
+        .attr("x1", 0).attr("y1", 0)
+        .attr("x2", 0).attr("y2", h);
+
+    g.append('g')
+        .attr('class', 'freq-axis')
+        .call(freqAxis)
+
+    function drawMainPath() {
+        mainPath.data([mainData])
+            .transition()
+            .duration(MERGE_DURATION)
+            .attr("d", line)
+            .on('end', function() {
+                d3.select('.line.new').remove();
+                zoom.attr('disabled', null);
+            });
+    }
+
+    function addHarmonic(freq, amp) {
+        // lets set freq in kHz, so that scale peaks at 1ms
+        // 2π === 1ms
+        // plan: add new path, transition to combined data from both sides
+        var existingHarmonic;
+        if (harmonics.some(function(obj) {
+            if (obj.frequency === freq) {
+                existingHarmonic = obj;
+                return true;
+            }
+            return false;
+        })) {
+            harmonics = harmonics.filter(function(obj) {
+                return obj.frequency !== freq;
+            });
+            mainData = createData(harmonics);
+            mainPath.data([mainData])
+                .transition()
+                .duration(200)
+                .attr("d", line)
+        }
+        function mergeNewCurveWithMain() {
+            newCurve
+                .data([mainData])
+                .transition()
+                .duration(MERGE_DURATION)
+                .attr("d", line);
+        }
+        var harmonic = function(d) {
+            return (amp || 1) * Math.sin(d * freq);
+        };
+        harmonic.frequency = freq;
+        var newCurve = g.append('path');
+        zoom.attr('disabled', true);
+        newCurve.data([createData([existingHarmonic] || [])])
+            .attr('class', 'line new')
+            .attr("d", line);
+
+        newCurve
+            .data([createData([harmonic])])
+            .transition()
+            .duration(2000)
+            .attr("d", line)
+            .on('end', function() {
+                harmonics.push(harmonic);
+                mainData = createData(harmonics);
+                drawMainPath();
+                mergeNewCurveWithMain();
+            });
+    }
+
+    function createData(harmonics) {
+        return d3.range(0, (2 * π) * periods + (π / resolution), (π / resolution)).map(function(d, i) {
+            return {
+                x: d,
+                y: harmonics.reduce(function(a, b) {
+                    if (typeof b === 'function') {
+                        return a + b(d)
+                    } else {
+                        return a;
+                    }
+                }, 0)
+            }
+        });
+    }
+
+    function setScale(val, click) {
+        xScale.domain([0, val * (2 * π) * periods]);
+        freqAxis = d3.axisTop(xScale.copy()
+            .domain([0, val]));
+        var t = g.transition().duration(click ? 750 : 0);
+        t.select(".freq-axis")
+            .call(freqAxis)
+        if(click) {
+            d3.selectAll('.line')
+                .transition()
+                .duration(750)
+                .attr('d', line)
+        } else {
+            d3.selectAll('.line')
+                .attr('d', line)
+        }
+    }
+
+    window.setTimeout(function() {
+        addHarmonic(1, 1);
+    }, 1000)
+
+    window.setTimeout(function() {
+        addHarmonic(4, 1);
+    }, 4000)
+
+    zoom.on('input', function() {
+        if (Math.abs(this.value - sliderValue) > 0.2) {
+            setScale(+this.value, true);
+        } else {
+            setScale(+this.value, false);
+        }
+        sliderValue = this.value;
+    })
+
+    svg.on('click', function(e) {
+        console.log(e);
+    })
+
+    drawMainPath();
+
+</script>
+</body>
