@@ -46,7 +46,9 @@
   </style>
 </head>
 <body>
-    <input id="zoom" type="range" value="1" min="0.1" max="1" step="0.01"> <label>Time zoom</label>
+    <div>
+        <input id="zoom" type="range" value="1" min="0.1" max="1" step="0.01"> <label>Time zoom</label>
+    </div>
     <script src="https://d3js.org/d3.v4.min.js"></script>
 <script>
     var
@@ -119,7 +121,8 @@
             .duration(MERGE_DURATION)
             .attr("d", line)
             .on('end', function() {
-                d3.select('.line.new').remove();
+                d3.select('.line.new')
+                .remove();
                 addHarmonicDisabled = false;
                 zoom.attr('disabled', null);
                 d3.selectAll('.bar')
@@ -239,6 +242,7 @@
             if (!addHarmonicDisabled) {
                 var selection = d3.select(this).datum(d3.mouse(this)[1]);
                 addHarmonic(this.id, pixelToAmplitude(d3.select(this).data()));
+                synthStuff();
                 selection.select('.bar.inner')
                     .transition()
                     .duration(MERGE_DURATION)
@@ -269,9 +273,28 @@
         })
         .attr('fill', 'pink');
 
+    var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    var oscillator = audioCtx.createOscillator();
+    oscillator.start();
 
+    function synthStuff() {
 
-    //drawMainPath();
+        // create Oscillator node
 
+        var real = new Float32Array(MAX_FREQ);
+        var imag = new Float32Array(MAX_FREQ);
+
+        real[0] = 0;
+        bars.data().map(pixelToAmplitude).forEach(function(d, i) {
+            real[i + 1] = d;
+        })
+        var wave = audioCtx.createPeriodicWave(real, imag);
+        oscillator.setPeriodicWave(wave);
+        oscillator.frequency.value = 440; // value in hertz
+        oscillator.connect(audioCtx.destination);
+        window.setTimeout(function(){
+            oscillator.disconnect();
+        }, 1000);
+    }
 </script>
 </body>
