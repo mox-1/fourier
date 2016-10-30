@@ -6,8 +6,12 @@
         stroke: hsl(0, 0%, 70%);
       }
 
-      .freq-axis, .freq-axis path, .tick line {
+      .time-axis, .time-axis path, .time-axis .tick line {
         stroke: steelblue;
+      }
+
+      .freq-axis, .freq-axis path, .freq-axis .tick line {
+        stroke: pink;
       }
 
       .bar-chart {
@@ -79,7 +83,8 @@
             return yScale(d.y);
         })
         .curve(d3.curveNatural),
-    freqAxis = d3.axisTop(xScale.copy().domain([0, 1]));
+    frequencyAxis = d3.axisBottom(d3.scaleBand().domain(d3.range(1, 11)).range([0, w]));
+    timeAxis = d3.axisTop(xScale.copy().domain([0, 1]));
     createData(harmonics);
 
     var svg = d3.select("body")
@@ -95,14 +100,18 @@
         mainPath = g.append("path")
             .attr("class", "line");
 
-    g.append("line")
-        .attr("class", "axis")
-        .attr("x1", 0).attr("y1", 0)
-        .attr("x2", 0).attr("y2", h);
+    // g.append("line")
+    //     .attr("class", "axis")
+    //     .attr("x1", 0).attr("y1", 0)
+    //     .attr("x2", 0).attr("y2", h);
 
     g.append('g')
+        .attr('class', 'time-axis')
+        .call(timeAxis)
+    g.append('g')
+        .attr("transform", "translate(0," + h + ")")
         .attr('class', 'freq-axis')
-        .call(freqAxis)
+        .call(frequencyAxis)
 
     function drawMainPath() {
         mainPath.data([mainData])
@@ -189,11 +198,11 @@
 
     function setScale(val, click) {
         xScale.domain([0, val * (2 * π) * periods]);
-        freqAxis = d3.axisTop(xScale.copy()
+        timeAxis = d3.axisTop(xScale.copy()
             .domain([0, val]));
         var t = g.transition().duration(click ? 750 : 0);
-        t.select(".freq-axis")
-            .call(freqAxis)
+        t.select(".time-axis")
+            .call(timeAxis)
         if(click) {
             d3.selectAll('.line')
                 .transition()
@@ -262,7 +271,7 @@
 
 
 
-    drawMainPath();
+    //drawMainPath();
 
 </script>
 </body>
