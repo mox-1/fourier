@@ -1,33 +1,26 @@
 <!DOCTYPE html>
 <head>
-  <meta charset="utf-8">
+  <meta charset='utf-8'>
   <style>
       .axis {
         stroke: hsl(0, 0%, 70%);
       }
 
-      .time-axis, .time-axis path, .time-axis .tick line {
-        stroke: steelblue;
-      }
-
-      .freq-axis, .freq-axis path, .freq-axis .tick line {
-        stroke: pink;
-      }
-
-      .bar-chart {
-        opacity: 0.1;
-      }
-
+      .time-axis,
+      .time-axis path,
+      .time-axis .tick line,
       .line {
-        fill: none;
         stroke: steelblue;
+        fill: none;
         stroke-width: 1.5px;
       }
-      .new.line {
-        stroke: pink;
+
+      .bar:hover {
+        fill: steelblue;
       }
 
       .bar {
+        fill: white;
         cursor: pointer;
       }
 
@@ -35,157 +28,219 @@
         cursor: default;
       }
 
-      .bar.disabled:hover {
-        fill: white;
+      .freq-axis,
+      .freq-axis path,
+      .freq-axis .tick line,
+      .new.line {
+        stroke: pink;
       }
 
-      .bar:hover {
-        fill: steelblue;
+      .bar.inner {
+        fill: pink;
+      }
+
+      .bar-chart {
+        opacity: 0.1;
       }
 
   </style>
 </head>
 <body>
     <div>
-        <input id="zoom" type="range" value="1" min="0.1" max="1" step="0.01"> <label>Time zoom</label>
+        <input id='zoom' type='range' value='1' min='0.1' max='1' step='0.01'><label>Time zoom</label>
+        <input id='mute' type='checkbox'><label>Mute</label>
     </div>
-    <script src="https://d3js.org/d3.v4.min.js"></script>
+    <script src='https://d3js.org/d3.v4.min.js'></script>
 <script>
     var
         margin = {top: 40, right: 0, bottom: 40, left: 50},
         W = 960,
         H = 500,
+        π = Math.PI,
+        PERIODS = 4,
+        MAX_FREQ = 10,
+        MAX_AMP = 10,
+        MERGE_DURATION = 800,
+        RESOLUTION = 2 * MAX_FREQ;
+
+    var
         w = W - margin.left - margin.right,
         h = H - margin.top - margin.bottom,
-        π = Math.PI,
-        periods = 4,
-        MAX_FREQ = 10,
-        MERGE_DURATION = 800,
-        resolution = 2 * MAX_FREQ,
         harmonics = [],
-        mainData = createData(harmonics),
-        zoom = d3.select('#zoom'),
         sliderValue = 1,
-        addHarmonicDisabled = false;
+        addHarmonicDisabled = false,
+        audioMuted = false,
+        xScale = d3.scaleLinear()
+            .domain([0, 2 * π * PERIODS])
+            .range([0, w]),
+        yScale = d3.scaleLinear()
+            .domain([-1 * MAX_AMP, MAX_AMP])
+            .range([0, h]),
+        heightToAmplitude = d3.scaleLinear()
+            .domain([0, h])
+            .range([1, 0]);
+        line = d3.line()
+            .x(function(d) {
+                return xScale(d.x);
+            })
+            .y(function(d) {
+                return yScale(d.y);
+            })
+            .curve(d3.curveNatural),
+        frequencyAxis = d3.axisBottom(
+            d3.scaleBand()
+                .domain(d3.range(1, MAX_FREQ + 1))
+                .range([0, w])
+        ),
+        timeAxis = d3.axisTop(
+            xScale.copy().domain([0, 1])
+        ),
+        zoom = d3.select('#zoom'),
+        mute = d3.select('#mute'),
+        mainData = createData(harmonics),
+        barData = d3.range(0, 10).map(function(d) {
+            return h;
+        }),
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)(),
+        oscillator = audioCtx.createOscillator(),
+        gainNode = audioCtx.createGain();
 
-    var xScale = d3.scaleLinear()
-        .domain([0, 2 * π * periods])
-        .range([0, w]),
-    yScale = d3.scaleLinear()
-        .domain([-10, 10])
-        .range([0, h]),
-    pixelToAmplitude = d3.scaleLinear()
-        .domain([0, h])
-        .range([1, 0]);
-    line = d3.line()
-        .x(function(d) {
-            return xScale(d.x);
-        })
-        .y(function(d) {
-            return yScale(d.y);
-        })
-        .curve(d3.curveNatural),
-    frequencyAxis = d3.axisBottom(d3.scaleBand().domain(d3.range(1, 11)).range([0, w]));
-    timeAxis = d3.axisTop(xScale.copy().domain([0, 1]));
-    createData(harmonics);
+        gainNode.gain.value = 0;
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start();
 
-    var svg = d3.select("body")
-        .append("svg")
-            .attr("width", W)
-            .attr("height", H),
-        g = svg.append("g")
+    mute.on('change', function(e) {
+        audioMuted = !audioMuted;
+    })
+
+    zoom.on('input', function() {
+        if (Math.abs(this.value - sliderValue) > 0.2) {
+            setScale(+this.value, true);
+        } else {
+            setScale(+this.value, false);
+        }
+        sliderValue = this.value;
+    });
+
+    var
+        svg = d3.select('body')
+            .append('svg')
+                .attr('width', W)
+                .attr('height', H),
+        g = svg.append('g')
             .attr('class', 'main')
-            .attr("transform", "translate(" + margin.left + "," + margin.top + ")"),
-        barChart = svg.append("g")
+            .attr('transform', 'translate(' + margin.left + ',' + margin.top + ')'),
+        barChart = svg.append('g')
             .attr('class', 'bar-chart')
-            .attr("transform", "translate(" + margin.left + "," + margin.top + ")"),
-        mainPath = g.append("path")
-            .attr("class", "line");
-
-    // g.append("line")
-    //     .attr("class", "axis")
-    //     .attr("x1", 0).attr("y1", 0)
-    //     .attr("x2", 0).attr("y2", h);
+            .attr('transform', 'translate(' + margin.left + ',' + margin.top + ')'),
+        bars = barChart.selectAll('rect')
+            .data(barData)
+            .enter().append('g')
+            .attr('class', 'bar')
+            .attr('id', function(d, i) {
+                return i + 1;
+            })
+            .attr('transform', function(d, i) { return 'translate(' + (i * w / 10) + ',' + 0 + ')'; })
+            .on('click', function() {
+                if (!addHarmonicDisabled) {
+                    var selection = d3.select(this).datum(d3.mouse(this)[1]);
+                    addHarmonic(this.id, heightToAmplitude(d3.select(this).data()));
+                    !audioMuted && playSynth();
+                    selection.select('.bar.inner')
+                        .transition()
+                        .duration(MERGE_DURATION)
+                        .attr('height', function(d, i) {
+                            return h - d;
+                        })
+                        .attr('y', function(d, i) {
+                            return d;
+                        })
+                }
+            }),
+        mainPath = g.append('path')
+            .attr('class', 'line');
 
     g.append('g')
         .attr('class', 'time-axis')
         .call(timeAxis)
     g.append('g')
-        .attr("transform", "translate(0," + h + ")")
+        .attr('transform', 'translate(0,' + h + ')')
         .attr('class', 'freq-axis')
         .call(frequencyAxis)
 
-    function drawMainPath() {
-        mainPath.data([mainData])
-            .transition()
-            .duration(MERGE_DURATION)
-            .attr("d", line)
-            .on('end', function() {
-                d3.select('.line.new')
-                .remove();
-                addHarmonicDisabled = false;
-                zoom.attr('disabled', null);
-                d3.selectAll('.bar')
-                    .classed('disabled', false);
-            });
-    }
+    bars.append('rect')
+        .attr('class', 'bar')
+        .attr('width', w/10)
+        .attr('height', h)
+    bars.append('rect')
+        .attr('class', 'bar inner')
+        .attr('width', w/10)
+        .attr('height', function(d, i) {
+            return h - d;
+        })
+        .attr('y', function(d, i) {
+            return d;
+        })
 
     function addHarmonic(freq, amp) {
-        // lets set freq in kHz, so that scale peaks at 1ms
-        // 2π === 1ms
-        // plan: add new path, transition to combined data from both sides
-        var existingHarmonic;
-        if (harmonics.some(function(obj) {
-            if (obj.frequency === freq) {
-                existingHarmonic = obj;
-                return true;
-            }
-            return false;
-        })) {
+        disableParams(true);
+
+        var existingHarmonic,
+            doesExist = harmonics.some(function(obj) {
+                if (obj.frequency === freq) {
+                    existingHarmonic = obj;
+                    return true;
+                }
+                return false;
+            }),
+            newCurve = g.append('path');
+        if (doesExist) {
+            // ... then immediately redraw main curve without it
             harmonics = harmonics.filter(function(obj) {
                 return obj.frequency !== freq;
             });
             mainData = createData(harmonics);
-            mainPath.data([mainData])
+            mainPath.datum(mainData)
                 .transition()
                 .duration(200)
-                .attr("d", line)
+                .attr('d', line)
         }
         function mergeNewCurveWithMain() {
             newCurve
-                .data([mainData])
+                .datum(mainData)
                 .transition()
                 .duration(MERGE_DURATION)
-                .attr("d", line);
+                .attr('d', line);
         }
-        var harmonic = function(d) {
+        function harmonic(d) {
             return (amp || 1) * Math.sin(d * freq);
         };
         harmonic.frequency = freq;
-        var newCurve = g.append('path');
-        addHarmonicDisabled = true;
-        zoom.attr('disabled', true);
-        d3.selectAll('.bar')
-            .classed('disabled', true);
-        newCurve.data([createData([existingHarmonic] || [])])
-            .attr('class', 'line new')
-            .attr("d", line);
 
+        // get new curve to start from its existing amplitude
+        newCurve.datum(createData([existingHarmonic] || []))
+            .attr('class', 'line new')
+            .attr('d', line);
+
+        //... then transition to its new one
         newCurve
-            .data([createData([harmonic])])
+            .datum(createData([harmonic]))
             .transition()
             .duration(2000)
-            .attr("d", line)
+            .attr('d', line)
             .on('end', function() {
                 harmonics.push(harmonic);
+                // set the main path data...
                 mainData = createData(harmonics);
+                // then transition both paths to it...
                 drawMainPath();
                 mergeNewCurveWithMain();
             });
     }
 
     function createData(harmonics) {
-        return d3.range(0, (2 * π) * periods + (π / resolution), (π / resolution)).map(function(d, i) {
+        return d3.range(0, (2 * π) * PERIODS + (π / RESOLUTION), (π / RESOLUTION)).map(function(d, i) {
             return {
                 x: d,
                 y: harmonics.reduce(function(a, b) {
@@ -199,12 +254,31 @@
         });
     }
 
+    function drawMainPath() {
+        mainPath.datum(mainData)
+            .transition()
+            .duration(MERGE_DURATION)
+            .attr('d', line)
+            .on('end', function() {
+                d3.select('.line.new').remove();
+                disableParams(false);
+            });
+    }
+
+    function disableParams(disabled) {
+        d3.selectAll('.bar')
+            .classed('disabled', disabled);
+        zoom.attr('disabled', disabled || null);
+        addHarmonicDisabled = disabled;
+    }
+
     function setScale(val, click) {
-        xScale.domain([0, val * (2 * π) * periods]);
-        timeAxis = d3.axisTop(xScale.copy()
-            .domain([0, val]));
+        xScale.domain([0, val * (2 * π) * PERIODS]);
+        timeAxis = d3.axisTop(
+            xScale.copy().domain([0, val])
+        );
         var t = g.transition().duration(click ? 750 : 0);
-        t.select(".time-axis")
+        t.select('.time-axis')
             .call(timeAxis)
         if(click) {
             d3.selectAll('.line')
@@ -217,84 +291,22 @@
         }
     }
 
-    zoom.on('input', function() {
-        if (Math.abs(this.value - sliderValue) > 0.2) {
-            setScale(+this.value, true);
-        } else {
-            setScale(+this.value, false);
-        }
-        sliderValue = this.value;
-    });
 
-    var barData = d3.range(0, 10).map(function(d) {
-        return h;
-    });
-
-    var bars = barChart.selectAll('rect')
-        .data(barData)
-        .enter().append("g")
-        .attr('class', 'bar')
-        .attr('id', function(d, i) {
-            return i + 1;
-        })
-        .attr("transform", function(d, i) { return "translate(" + i * w/10 + "," + 0 + ")"; })
-        .on('click', function() {
-            if (!addHarmonicDisabled) {
-                var selection = d3.select(this).datum(d3.mouse(this)[1]);
-                addHarmonic(this.id, pixelToAmplitude(d3.select(this).data()));
-                synthStuff();
-                selection.select('.bar.inner')
-                    .transition()
-                    .duration(MERGE_DURATION)
-                    .attr('height', function(d, i) {
-                        return h - d;
-                    })
-                    .attr('y', function(d, i) {
-                        return d;
-                    })
-            }
-        });
-    bars.append("rect")
-        .attr('class', 'bar')
-        .attr("width", w/10)
-        .attr("height", h)
-        .attr('fill', 'white')
-        .attr('id', function(d, i) {
-            return i;
-    })
-    bars.append('rect')
-        .attr('class', 'bar inner')
-        .attr("width", w/10)
-        .attr('height', function(d, i) {
-            return h - d;
-        })
-        .attr('y', function(d, i) {
-            return d;
-        })
-        .attr('fill', 'pink');
-
-    var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    var oscillator = audioCtx.createOscillator();
-    oscillator.start();
-
-    function synthStuff() {
-
-        // create Oscillator node
-
-        var real = new Float32Array(MAX_FREQ);
-        var imag = new Float32Array(MAX_FREQ);
+    function playSynth() {
+        var real = new Float32Array(MAX_FREQ + 1);
+        var imag = new Float32Array(MAX_FREQ + 1);
 
         real[0] = 0;
-        bars.data().map(pixelToAmplitude).forEach(function(d, i) {
+        bars.data().map(heightToAmplitude).forEach(function(d, i) {
             real[i + 1] = d;
-        })
-        var wave = audioCtx.createPeriodicWave(real, imag);
+        });
+        var wave = audioCtx.createPeriodicWave(real, imag, {disableNormalization: true});
         oscillator.setPeriodicWave(wave);
-        oscillator.frequency.value = 440; // value in hertz
-        oscillator.connect(audioCtx.destination);
-        window.setTimeout(function(){
-            oscillator.disconnect();
-        }, 1000);
+        oscillator.frequency.value = 1000;
+
+        gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+        gainNode.gain.linearRampToValueAtTime(1, audioCtx.currentTime + 1);
+        gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 3);
     }
 </script>
 </body>
