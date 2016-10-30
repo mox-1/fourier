@@ -2,21 +2,47 @@
 <head>
   <meta charset="utf-8">
   <style>
-      .axis, .freq-axis path {
+      .axis {
         stroke: hsl(0, 0%, 70%);
       }
+
+      .freq-axis, .freq-axis path, .tick line {
+        stroke: steelblue;
+      }
+
+      .bar-chart {
+        opacity: 0.1;
+      }
+
       .line {
         fill: none;
         stroke: steelblue;
         stroke-width: 1.5px;
       }
       .new.line {
-        stroke: grey;
+        stroke: pink;
       }
+
+      .bar {
+        cursor: pointer;
+      }
+
+      .bar.disabled {
+        cursor: default;
+      }
+
+      .bar.disabled:hover {
+        fill: white;
+      }
+
+      .bar:hover {
+        fill: steelblue;
+      }
+
   </style>
 </head>
 <body>
-    <input id="zoom" type="range" value="1" min="0.1" max="1" step="0.01"> <label>Zoom</label>
+    <input id="zoom" type="range" value="1" min="0.1" max="1" step="0.01"> <label>Time zoom</label>
     <script src="https://d3js.org/d3.v4.min.js"></script>
 <script>
     var
@@ -33,14 +59,18 @@
         harmonics = [],
         mainData = createData(harmonics),
         zoom = d3.select('#zoom'),
-        sliderValue = 1;
+        sliderValue = 1,
+        addHarmonicDisabled = false;
 
     var xScale = d3.scaleLinear()
         .domain([0, 2 * π * periods])
         .range([0, w]),
     yScale = d3.scaleLinear()
-        .domain([-5, 5])
+        .domain([-10, 10])
         .range([0, h]),
+    pixelToAmplitude = d3.scaleLinear()
+        .domain([0, h])
+        .range([1, 0]);
     line = d3.line()
         .x(function(d) {
             return xScale(d.x);
@@ -57,6 +87,10 @@
             .attr("width", W)
             .attr("height", H),
         g = svg.append("g")
+            .attr('class', 'main')
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")"),
+        barChart = svg.append("g")
+            .attr('class', 'bar-chart')
             .attr("transform", "translate(" + margin.left + "," + margin.top + ")"),
         mainPath = g.append("path")
             .attr("class", "line");
@@ -77,7 +111,10 @@
             .attr("d", line)
             .on('end', function() {
                 d3.select('.line.new').remove();
+                addHarmonicDisabled = false;
                 zoom.attr('disabled', null);
+                d3.selectAll('.bar')
+                    .classed('disabled', false);
             });
     }
 
@@ -114,7 +151,10 @@
         };
         harmonic.frequency = freq;
         var newCurve = g.append('path');
+        addHarmonicDisabled = true;
         zoom.attr('disabled', true);
+        d3.selectAll('.bar')
+            .classed('disabled', true);
         newCurve.data([createData([existingHarmonic] || [])])
             .attr('class', 'line new')
             .attr("d", line);
@@ -165,14 +205,6 @@
         }
     }
 
-    window.setTimeout(function() {
-        addHarmonic(1, 1);
-    }, 1000)
-
-    window.setTimeout(function() {
-        addHarmonic(4, 1);
-    }, 4000)
-
     zoom.on('input', function() {
         if (Math.abs(this.value - sliderValue) > 0.2) {
             setScale(+this.value, true);
@@ -180,11 +212,55 @@
             setScale(+this.value, false);
         }
         sliderValue = this.value;
-    })
+    });
 
-    svg.on('click', function(e) {
-        console.log(e);
+    var barData = d3.range(0, 10).map(function(d) {
+        return h;
+    });
+
+    var bars = barChart.selectAll('rect')
+        .data(barData)
+        .enter().append("g")
+        .attr('class', 'bar')
+        .attr('id', function(d, i) {
+            return i + 1;
+        })
+        .attr("transform", function(d, i) { return "translate(" + i * w/10 + "," + 0 + ")"; })
+        .on('click', function() {
+            if (!addHarmonicDisabled) {
+                var selection = d3.select(this).datum(d3.mouse(this)[1]);
+                addHarmonic(this.id, pixelToAmplitude(d3.select(this).data()));
+                selection.select('.bar.inner')
+                    .transition()
+                    .duration(MERGE_DURATION)
+                    .attr('height', function(d, i) {
+                        return h - d;
+                    })
+                    .attr('y', function(d, i) {
+                        return d;
+                    })
+            }
+        });
+    bars.append("rect")
+        .attr('class', 'bar')
+        .attr("width", w/10)
+        .attr("height", h)
+        .attr('fill', 'white')
+        .attr('id', function(d, i) {
+            return i;
     })
+    bars.append('rect')
+        .attr('class', 'bar inner')
+        .attr("width", w/10)
+        .attr('height', function(d, i) {
+            return h - d;
+        })
+        .attr('y', function(d, i) {
+            return d;
+        })
+        .attr('fill', 'pink');
+
+
 
     drawMainPath();
 
